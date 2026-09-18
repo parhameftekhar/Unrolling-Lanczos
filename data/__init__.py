@@ -1,6 +1,7 @@
 import random
 from torch.utils.data import DataLoader, Subset
 from .sbm import SBMDataset
+from .proteins import PROTEINSDataset
 
 def get_dataloaders(dataset_name, args):
     if dataset_name.lower() == 'sbm':
@@ -12,6 +13,11 @@ def get_dataloaders(dataset_name, args):
             p_out=args.p_out, 
             k=args.k, 
             base_seed=args.seed
+        )
+    elif dataset_name.lower() == 'proteins':
+        dataset = PROTEINSDataset(
+            root='./data_dir',
+            k=args.k
         )
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
@@ -33,8 +39,8 @@ def get_dataloaders(dataset_name, args):
     val_dataset = Subset(dataset, val_idx)
     test_dataset = Subset(dataset, test_idx)
     
-    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
     
     return train_loader, val_loader, test_loader

@@ -25,36 +25,11 @@ from models import LearnableLanczosInit
 from data import get_dataloaders
 
 
-# ──────────────────────────────────────────────────────────────────
-# 2. Evaluation metrics
-# ──────────────────────────────────────────────────────────────────
-
-def subspace_error(Q, T, U_k, k):
-    """E²_sub = (1/k) · ‖(I − Û_k Û_k^T) U_k‖²_F"""
-    T_sq = T.squeeze(0)
-    _, U_T = torch.linalg.eigh(T_sq)
-    k_use = min(k, U_T.shape[-1])
-    U_hat = Q.squeeze(0) @ U_T[:, :k_use]
-    U_hat, _ = torch.linalg.qr(U_hat)
-    U_k_use = U_k[:, :k_use]
-    proj = U_k_use - U_hat @ (U_hat.T @ U_k_use)
-    return proj.pow(2).sum() / k_use
-
-
-
-
+from metrics import subspace_error, compute_reg_loss
 
 # ──────────────────────────────────────────────────────────────────
 # 4. Loss & evaluation helpers
 # ──────────────────────────────────────────────────────────────────
-
-def compute_reg_loss(alpha_vec, beta_vec, reg_alpha, reg_beta, device):
-    """L = λ_α · mean(α²) − λ_β · mean(β²)."""
-    loss_alpha = alpha_vec.pow(2).mean()
-    loss_beta = torch.tensor(0.0, device=device)
-    if beta_vec.numel() > 0:
-        loss_beta = beta_vec.pow(2).mean()
-    return reg_alpha * loss_alpha - reg_beta * loss_beta, loss_alpha, loss_beta
 
 
 @torch.no_grad()
@@ -65,7 +40,7 @@ def evaluate_loader(model, loader, k, device, n_samples=5):
     count = 0
     for L, _, eigvec in loader:
         L = L.to(device)
-        U_k = eigvec[0].to(device)
+        U_k = eigvec.to(device)
         sample_sum = 0.0
         for _ in range(n_samples):
             Q, T, _, _ = model(L)
@@ -90,8 +65,8 @@ def train(args):
     set_seed(args.seed)
     device = torch.device(args.device)
 
-    print(f"Generating SBM graphs ...")
-    train_loader, val_loader, test_loader = get_dataloaders('sbm', args)
+    print(f"Loading {args.dataset} dataset ...")
+    train_loader, val_loader, test_loader = get_dataloaders(args.dataset, args)
     print(f"Split: {len(train_loader.dataset)} train / {len(val_loader.dataset)} val / {len(test_loader.dataset)} test")
 
     k = args.k
@@ -138,7 +113,7 @@ def train(args):
             Q, T, alpha_vec, beta_vec = model(L)
 
             if use_subspace_loss:
-                loss = subspace_error(Q, T, eigvec[0].to(device), k)
+                loss = subspace_error(Q, T, eigvec.to(device), k)
                 la, lb = torch.tensor(0.0), torch.tensor(0.0)
             else:
                 loss, la, lb = compute_reg_loss(
@@ -212,7 +187,10 @@ def parse_args(args=None):
     p = argparse.ArgumentParser(
         description="Train inverse-polynomial CG Lanczos init on SBM graphs.")
 
-    # Graph
+    # Dataset
+    p.add_argument("--dataset", type=str, default="sbm", choices=["sbm", "proteins"], help="Dataset to use")
+
+    # Graph (SBM specific)
     p.add_argument("--n-graphs", type=int, default=50)
     p.add_argument("--n", type=int, default=100)
     p.add_argument("--k-blocks", type=int, default=4)
@@ -229,12 +207,13 @@ def parse_args(args=None):
     # Training
     p.add_argument("--epochs", type=int, default=200)
     p.add_argument("--lr", type=float, default=1e-2)
+    p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--loss-mode", default="reg", choices=["reg", "subspace"])
     p.add_argument("--reg-alpha", type=float, default=0.01)
     p.add_argument("--reg-beta", type=float, default=0.01)
 
     # Misc
-    p.add_argument("--log-every", type=int, default=20)
+    p.add_argument("--log-every", type=int, default=10)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args(args)
